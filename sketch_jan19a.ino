@@ -1,19 +1,29 @@
-/*
+//Libraries sensor
+#include <dht.h>
+// Wir verwenden Software Serial
+#define softserial
+
 const byte OC1A_PIN = 9; // pin 9
 const byte OC1B_PIN = 10; // pin 10
 //Adjust this value to adjust the frequency (Frequency in HZ!) (Set currently to 25kHZ)
 const word PWM_FREQ_HZ = 25000; 
 const word TCNT1_TOP = 16000000/(2*PWM_FREQ_HZ);
-*/
-
-// DHT22 - Sensor humidity-temperature
-//#define dht22Pin 7 // pin 7
-//dht DHT;
-
 // Pin FAN 2 control:
 const int fan2Pin = 11;  // pin 11
-//Test
-#define temperatureSensorPin A0
+
+// DHT22 - Sensor humidity-temperature
+#define dht22Pin 7 // pin 7
+dht DHT;
+
+// HM-10 Bluetooth
+#ifdef softserial
+  #include <SoftwareSerial.h>
+  const int BTRX = 2;  // pin 2
+  const int BTTX = 3;  // pin 3
+  SoftwareSerial SerialBT(BTRX, BTTX);
+#else 
+  HardwareSerial SerialBT = Serial1;
+#endif
 
 typedef struct { 
   int index;
@@ -39,6 +49,7 @@ modeDictionary modeDicArr[9] {
 int modeDicSize = sizeof(modeDicArr)/sizeof(modeDictionary);
 
 float hum = 0;  //Stores humidity value
+float humPrevious = 0;
 float temp = 0; //Stores temperature value
 int fanSpeed = 100;
 int fanPercent = 0;
@@ -47,9 +58,9 @@ bool hasTimeDelay = false;
 bool hasExecuteCommand = true;
 
 void setup() {
-  //pinMode(OC1A_PIN, OUTPUT);
+  pinMode(OC1A_PIN, OUTPUT);
   pinMode(fan2Pin, OUTPUT);
-  /*
+
   // Clear Timer1 control and count registers
   TCCR1A = 0;
   TCCR1B = 0;
@@ -57,16 +68,16 @@ void setup() {
   TCCR1A |= (1 << COM1A1) | (1 << WGM11);
   TCCR1B |= (1 << WGM13) | (1 << CS10);
   ICR1 = TCNT1_TOP;
-  */
-  Serial.begin(9600);
-  Serial.println("Program start!");
+  
+  SerialBT.begin(9600);
+  SerialBT.println("Program start!");
 }
 
 void loop() {
-  //int chk = DHT.read22(dht22Pin);
+  int chk = DHT.read22(dht22Pin);
   //Read data and store it to variables hum and temp
-  //hum = DHT.humidity;
-  //temp= DHT.temperature;
+  hum = DHT.humidity;
+  temp= DHT.temperature;
 
   fanPercent = (((100-hum)/100) * 100);
   //fanSpeed = 1.5 * fanPercent;
@@ -83,7 +94,7 @@ void loop() {
 
 void serialEvent() { // Run=1
 
-  int availableBytes = Serial.available();
+  int availableBytes = SerialBT.available();
 
   if (availableBytes > 0) {    
     char serialRead;
@@ -93,7 +104,7 @@ void serialEvent() { // Run=1
     bool hasReadStrCommand = false;    
 
     for(int i=0; i < availableBytes; i++){
-      serialRead = Serial.read();      
+      serialRead = SerialBT.read();      
 
       int strCmdLength = strCommand.length();
 
@@ -142,12 +153,12 @@ void serialEvent() { // Run=1
     }
 
     if(!hasExecuteCommand){
-      Serial.println("-----------PrintError-----------");
-      Serial.print("Invalid command! - '");
-      Serial.print(strCommand);
-      Serial.println("'.");
-      Serial.println("Use command 'help' or '?'");
-      Serial.println("--------------------------------");
+      SerialBT.println("-----------PrintError-----------");
+      SerialBT.print("Invalid command! - '");
+      SerialBT.print(strCommand);
+      SerialBT.println("'.");
+      SerialBT.println("Use command 'help' or '?'");
+      SerialBT.println("--------------------------------");
     }  
   }
 }
@@ -164,16 +175,15 @@ void executeCommand() { // Run=2
     }
 
     if(modeDicArr[i].fan1 == 0) { //FAN 1
-      //setPwmDuty(100);
+      setPwmDuty(100);
     } else if(modeDicArr[i].fan1 == 1) {
-      //setPwmDuty(0);
+      setPwmDuty(0);
     }
 
     if(modeDicArr[i].fan2 == 0) { //FAN 2
       digitalWrite(fan2Pin, LOW);
     } else if(modeDicArr[i].fan2 == 1) {
       digitalWrite(fan2Pin, HIGH);
-      //Serial.println(modeDicArr[i].fan2);
     }
 
     if(modeDicArr[i].fan1 != 2 || modeDicArr[i].fan2 != 2) { //AUTO
@@ -181,22 +191,22 @@ void executeCommand() { // Run=2
     }
 
     if(hum >= 80) {
-      //setPwmDuty(fanPercent);
+      setPwmDuty(fanPercent);
       modeDicArr[i].fan1 = 1;
       analogWrite(fan2Pin, fanSpeed);
       modeDicArr[i].fan2 = 1;
     }  else if(hum >= 70 && hum < 80) {
-      //setPwmDuty(fanPercent);
+      setPwmDuty(fanPercent);
       modeDicArr[i].fan1 = 1;    
       digitalWrite(fan2Pin, LOW);
       modeDicArr[i].fan2 = 0;
-    } else if(hum >= 65 && hum < 70) {
-      //setPwmDuty(fanPercent);
+    } else if(hum >= 60 && hum < 70) {
+      setPwmDuty(fanPercent);
       modeDicArr[i].fan1 = 1;    
       digitalWrite(fan2Pin, LOW);
       modeDicArr[i].fan2 = 0;
-    } else if(hum >= 0 && hum < 65) {
-      //setPwmDuty(100);
+    } else if(hum >= 0 && hum < 60) {
+      setPwmDuty(100);
       modeDicArr[i].fan1 = 0;
       digitalWrite(fan2Pin, LOW); 
       modeDicArr[i].fan2 = 0;   
@@ -205,7 +215,10 @@ void executeCommand() { // Run=2
 }
 
 void executeCommandAuto() {
-  tempEvent(); //TEST
+ if((int)humPrevious != (int)hum) {
+    humPrevious = hum;
+    hasExecuteCommand = true;
+  }
 }
 
 void print(){ // Run=3
@@ -219,77 +232,76 @@ void print(){ // Run=3
       continue;
     }   
 
-    Serial.println(modeDicArr[i].msg);
     if(modeDicArr[i].cmd == "help" || modeDicArr[i].cmd == "?") {
       printHelp();
       continue;
     }
-
+    SerialBT.println(modeDicArr[i].cmd);
     printStatusFan(modeDicArr[i].fan1, modeDicArr[i].fan2);
   }
   printDelay();
 }
 
 void printHelp() { // Run=3.1
-  Serial.println("------------PrintHelp-----------");
-  Serial.println("help -print help.");
-  Serial.println("? -print help.");
-  Serial.println("on -on all fan, space min.");
-  Serial.println("off -off all fan, space min.");
-  Serial.println("auto -auto all fan, space min.");
-  Serial.println("info -print status.");
-  Serial.println("Example: 'on 5' - on for 5 min.");
-  Serial.println("Example: 'auto' - on auto mode.");
-  Serial.println("Example: '?' - print help.");
-  Serial.println("--------------------------------");
+  SerialBT.println("------------PrintHelp-----------");
+  SerialBT.println("help -print help.");
+  SerialBT.println("? -print help.");
+  SerialBT.println("on -on all fan, space min.");
+  SerialBT.println("off -off all fan, space min.");
+  SerialBT.println("auto -auto all fan, space min.");
+  SerialBT.println("info -print status.");
+  SerialBT.println("Example: 'on 5' - on for 5 min.");
+  SerialBT.println("Example: 'auto' - on auto mode.");
+  SerialBT.println("Example: '?' - print help.");
+  SerialBT.println("--------------------------------");
 }
 
 void printStatusHumTemp() { // Run=3.2
   if (hasExecuteCommand) {
-    Serial.println("-------PrintStatusHumTemp-------");
+    SerialBT.println("-------PrintStatusHumTemp-------");
     //Print temp and humidity values to serial monitor
-    Serial.print("Humidity:");
-    Serial.print(hum);
-    Serial.print("%, Temp:");
-    Serial.print(temp);
-    Serial.println("C");
-    Serial.println("--------------------------------");
+    SerialBT.print("Humidity:");
+    SerialBT.print(hum);
+    SerialBT.print("%, Temp:");
+    SerialBT.print(temp);
+    SerialBT.println("C");
+    SerialBT.println("--------------------------------");
   }  
 }
 
 void printStatusFan(byte fan1, byte fan2) { // Run=3.3
-  Serial.println("---------PrintStatusFan---------");
-  Serial.print("FAN 1 ");
+  SerialBT.println("---------PrintStatusFan---------");
+  SerialBT.print("FAN 1 ");
   if(fan1 == 0){
-    Serial.println("OFF");
+    SerialBT.println("OFF");
   } else if(fan1 == 1) {
-    Serial.print("ON, Speed=");
-    Serial.print(100-fanPercent);
-    Serial.println("%");    
+    SerialBT.print("ON, Speed=");
+    SerialBT.print(100 - fanPercent);
+    SerialBT.println("%");    
   } else if(fan1 == 2) {
-    Serial.println("");
+    SerialBT.println("");
   }
 
-  Serial.print("FAN 2 ");
+  SerialBT.print("FAN 2 ");
   if(fan2 == 0){
-    Serial.println("OFF");
+    SerialBT.println("OFF");
   } else if(fan2 == 1){
-    Serial.print("ON, Speed=");
-    Serial.print(fanSpeed);
-    Serial.println("");
+    SerialBT.print("ON, Speed=");
+    SerialBT.print(fanSpeed);
+    SerialBT.println("");
   } else if(fan2 == 2) {
-    Serial.println("");
+    SerialBT.println("");
   }
-  Serial.println("--------------------------------");
+  SerialBT.println("--------------------------------");
 }
 
 void printDelay() { // Run=3.4  
   if(hasTimeDelay) {
-    Serial.println("-----------PrintDelay-----------");
-    Serial.print("Delay ");
-    Serial.print((time / 60) / 1000); //Convert to minutes
-    Serial.println(" min.");
-    Serial.println("--------------------------------");
+    SerialBT.println("-----------PrintDelay-----------");
+    SerialBT.print("Delay ");
+    SerialBT.print((time / 60) / 1000); //Convert to minutes
+    SerialBT.println(" min.");
+    SerialBT.println("--------------------------------");
   }  
 }
 
@@ -315,16 +327,6 @@ void resetVariables() { // Run=5
   hasTimeDelay = false;
 }
 
-void tempEvent(){
-  // Get a reading from the temperature sensor:
-  int readingTemp = analogRead(temperatureSensorPin);
-  // Converting that reading to voltage, for 3.3v arduino use 3.3
-  float voltageTemp = (readingTemp * 5.0) / 1024.0;
-  // Convert the voltage into the temperature in degree Celsius:
-  float temperatureC = (voltageTemp - 0.5) * 100;
-
-  if(hum != temperatureC){
-    hum = temperatureC;
-    hasExecuteCommand = true;
-  }
+void setPwmDuty(byte duty) {
+  OCR1A = (word) (duty*TCNT1_TOP)/100;
 }
